@@ -80,8 +80,7 @@ public void resetMotorPosition (double position) {
   motorRight.setPosition (position);
 }
 public boolean isNearPositionAndTolerance(double position, double tolerance) {
-        return MathUtil.isNear(position, getArmPosition(), tolerance)
-                || MathUtil.isNear(position, getArmPosition(), tolerance);
+        return MathUtil.isNear(position, getArmPosition(), tolerance);
     }
   private final TalonFX motorLeft = new TalonFX(20);
   private final TalonFX motorRight = new TalonFX(21);
