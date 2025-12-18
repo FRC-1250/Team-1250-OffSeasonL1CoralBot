@@ -5,10 +5,7 @@
 package frc.robot.subsystems;
 
 import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
-import com.ctre.phoenix6.configs.MotionMagicConfigs;
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
-import com.ctre.phoenix6.controls.MotionMagicVoltage;
-import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.InvertedValue;
@@ -18,41 +15,55 @@ import edu.wpi.first.wpilibj.DigitalInput;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 
 public class EndEffector extends SubsystemBase {
-  /** Creates a new EndEffector. */
-  private final TalonFX motor = new TalonFX(30);
-  private final DigitalInput CoralSensor = new DigitalInput(1);
-   private PositionVoltage positionVoltage = new PositionVoltage(0).withSlot(0);
-   private VelocityVoltage velocityVoltage = new VelocityVoltage(0).withSlot(0);
-   private final MotionMagicVoltage motionMagicRequest = new MotionMagicVoltage(0);
-  public EndEffector() {
-    CurrentLimitsConfigs currentLimitConfigs = new CurrentLimitsConfigs();
-    currentLimitConfigs.SupplyCurrentLimitEnable = true;
-    currentLimitConfigs.SupplyCurrentLimit = 30;
-    MotorOutputConfigs motorOutputConfigs = new MotorOutputConfigs();
-    motorOutputConfigs.NeutralMode = NeutralModeValue.Brake;
-    motorOutputConfigs.Inverted = InvertedValue.Clockwise_Positive;
-     MotionMagicConfigs motionMagicConfigs = new MotionMagicConfigs();
 
-    
-}
-public double getEndEffectorPosition() {
-    return motor.getPosition().getValueAsDouble();
-  }
-  public void setSpeed(double speed) {
-    motor.set(speed);
-  }
-  public void setPosition(double position) {
-    motionMagicRequest.Position = position;
-    motor.setControl(motionMagicRequest);
-  }
-  public void stop() {
-    motor.stopMotor();
-  }
-  public boolean hasCoral() {
-    return !CoralSensor.get();
-}
-  @Override
-  public void periodic() {
-    // This method will be called once per scheduler run
-  }
+    public enum IntakeVelocity {
+        FAST_INTAKE(100),
+        SLOW_INTAKE(50),
+        FAST_OUTPUT(-100),
+        SLOW_OUTPUT(-50);
+
+        public final double velocity;
+
+        IntakeVelocity(double velocity) {
+            this.velocity = velocity;
+        }
+    }
+
+    private final TalonFX motor = new TalonFX(30);
+    private final DigitalInput CoralSensor = new DigitalInput(1);
+    private VelocityVoltage velocityVoltage = new VelocityVoltage(0).withSlot(0);
+
+    public EndEffector() {
+        CurrentLimitsConfigs currentLimitConfigs = new CurrentLimitsConfigs();
+        currentLimitConfigs.SupplyCurrentLimitEnable = true;
+        currentLimitConfigs.SupplyCurrentLimit = 30;
+
+        MotorOutputConfigs motorOutputConfigs = new MotorOutputConfigs();
+        motorOutputConfigs.NeutralMode = NeutralModeValue.Brake;
+        motorOutputConfigs.Inverted = InvertedValue.Clockwise_Positive;
+    }
+
+    public double getEndEffectorPosition() {
+        return motor.getPosition().getValueAsDouble();
+    }
+
+    public void setSpeed(double velocity) {
+        motor.setControl(velocityVoltage.withVelocity(velocity));
+    }
+
+    public void setSpeed(IntakeVelocity velocity) {
+        setSpeed(velocity.velocity);
+    }
+
+    public void stop() {
+        motor.stopMotor();
+    }
+
+    public boolean hasCoral() {
+        return !CoralSensor.get();
+    }
+
+    @Override
+    public void periodic() {
+    }
 }
