@@ -42,4 +42,9 @@ public class ArmMovement extends Command {
   public boolean isFinished() {
     return arm.isNearPositionAndTolerance(position.rotations, 0.25);
   }
+
+public static Command cmdSetElevatorPosition(Positions intake) {
+    // TODO Auto-generated method stub
+    throw new UnsupportedOperationException("Unimplemented method 'cmdSetElevatorPosition'");
+}
 }

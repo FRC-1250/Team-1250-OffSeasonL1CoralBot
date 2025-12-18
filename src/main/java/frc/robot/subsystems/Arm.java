@@ -26,7 +26,7 @@ public class Arm extends SubsystemBase {
     Climb(0),
     ClimbPrep(0),
     ScoreCoral(0),
-    Dealgae(0);
+    Dealgae(0), Shoot;
 
     public final double rotations;
 

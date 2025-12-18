@@ -18,6 +18,7 @@ import com.pathplanner.lib.commands.PathPlannerAuto;
 import edu.wpi.first.math.controller.ArmFeedforward;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.DataLogManager;
+import edu.wpi.first.wpilibj.SerialPort.Port;
 import edu.wpi.first.wpilibj.event.EventLoop;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
@@ -108,6 +109,12 @@ public class RobotContainer {
     private void configureSinglePlayerBindings() {
         configureCommonBindings(singlePlayer);
 
+
+        driverJoystick.b(singlePlayer).onTrue(ArmMovement.cmdSetElevatorPosition(Positions.Home));
+        driverJoystick.leftBumper(singlePlayer).onTrue(ArmMovement.cmdSetElevatorPosition(Positions.ScoreCoral));
+       driverJoystick.leftTrigger().onTrue(ArmMovement.cmdSetElevatorPosition(Positions.Intake));
+
+       
         new ArmMovement(arm, Positions.Home);
         new ArmMovement(arm, Positions.Climb);
         new ArmMovement(arm, Positions.Intake);
