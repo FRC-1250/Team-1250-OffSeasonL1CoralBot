@@ -110,11 +110,6 @@ public class RobotContainer {
                         .withVelocityY(-joystick.getLeftX() * MaxSpeed)
                         .withRotationalRate(-joystick.getRightX() * MaxAngularRate)));
 
-         joystick.b().onTrue(controlFactory.cmdSetElevatorPosition(ElevatorPosition.HOME));
-         joystick.leftBumper().onTrue(controlFactory.cmdSetElevatorPosition(ElevatorPosition.L1));
-         joystick.rightBumper().onTrue(controlFactory.cmdSetElevatorPosition(Mode.freerangemode));
-         joystick.leftTrigger().onTrue(controlFactory.cmdSetElevatorPosition(ArmMovement.intake));
-
        
 
         // Run SysId routines when holding back/start and X/Y.
