@@ -6,45 +6,40 @@ package frc.robot;
 
 import static edu.wpi.first.units.Units.*;
 
+import java.util.List;
+import java.util.function.BooleanSupplier;
+
 import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.ctre.phoenix6.swerve.SwerveRequest;
+import com.pathplanner.lib.auto.NamedCommands;
+import com.pathplanner.lib.commands.PathPlannerAuto;
 
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.wpilibj.DataLogManager;
+import edu.wpi.first.wpilibj.event.EventLoop;
+import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.WaitCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
-import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
 import frc.robot.commands.ArmMovement;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.CommandSwerveDrivetrain;
 import frc.robot.subsystems.Arm;
 import frc.robot.subsystems.Arm.Positions;
+import frc.robot.util.JoystickToHeading;
 
 public class RobotContainer {
-    public enum ReefHeading {
-        AB(Rotation2d.kZero),
-        CD(Rotation2d.fromDegrees(-60)),
-        EF(Rotation2d.fromDegrees(-120)),
-        HG(Rotation2d.k180deg),
-        JI(Rotation2d.fromDegrees(120)),
-        LK(Rotation2d.fromDegrees(60));
-
-        private final Rotation2d rotation2d;
-
-        private ReefHeading(Rotation2d rotation2d) {
-            this.rotation2d = rotation2d;
-        }
-
-        public Rotation2d getRotation2d() {
-            return rotation2d;
-        }
-    }
 
     private final double MaxSpeed = TunerConstants.kSpeedAt12Volts.in(MetersPerSecond);
-
     private final double MaxAngularRate = RotationsPerSecond.of(0.75).in(RadiansPerSecond);
 
+    /*
+     * Swerve requests
+     */
     private final SwerveRequest.FieldCentric drive = new SwerveRequest.FieldCentric()
             .withDeadband(MaxSpeed * 0.1).withRotationalDeadband(MaxAngularRate * 0.1)
             .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
@@ -54,128 +49,142 @@ public class RobotContainer {
             .withRotationalDeadband(MaxAngularRate * 0.1)
             .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
 
-    private final SwerveRequest.SwerveDriveBrake brake = new SwerveRequest.SwerveDriveBrake();
+    private final JoystickToHeading joystickToHeading = new JoystickToHeading();
+    private final List<Rotation2d> headings = List.of(
+            Rotation2d.kZero,
+            Rotation2d.fromDegrees(-60),
+            Rotation2d.fromDegrees(-120),
+            Rotation2d.k180deg,
+            Rotation2d.fromDegrees(120),
+            Rotation2d.fromDegrees(60));
 
-    private final SwerveRequest.PointWheelsAt point = new SwerveRequest.PointWheelsAt();
     private final SwerveRequest.Idle idle = new SwerveRequest.Idle();
     private final Telemetry logger = new Telemetry(MaxSpeed);
-    private final CommandXboxController joystick = new CommandXboxController(0);
+
+    /*
+     * Controllers, subsystems, choosers
+     */
+    private final SendableChooser<Command> autoChooser = new SendableChooser<>();
+    private final SendableChooser<EventLoop> controllerModeChooser = new SendableChooser<>();
+
+    private final EventLoop singlePlayer = new EventLoop();
+    private final EventLoop twoPlayer = new EventLoop();
+    private final CommandXboxController driverJoystick = new CommandXboxController(0);
+    private final CommandXboxController operatorPanel = new CommandXboxController(1);
 
     private final CommandSwerveDrivetrain drivetrain = TunerConstants.createDrivetrain();
-
     private final Arm arm = new Arm();
 
-    private final double JOYSTICK_DEADBAND = 0.5;
-
-    private final double HEADING_TOLERANCE_DEGREES = 30;
-
-    private ReefHeading targetReefHeading = ReefHeading.HG;
-    private ReefHeading previousReefHeading = ReefHeading.HG;
-
-    private Rotation2d targetHeading = Rotation2d.kZero;
-    private Rotation2d previousTargetHeading = Rotation2d.kZero;
-
     public RobotContainer() {
-        configureBindings();
+        configureSinglePlayerBindings();
+        configureTwoPlayerBindings();
+        changeEventLoop(singlePlayer);
+        configureNamedCommands();
+        configureAutoCommands();
+        configureControlLoopChooser();
     }
 
     public Command getAutonomousCommand() {
         return Commands.print("No autonomous command configured");
     }
 
-    private void configureBindings() {
+    public BooleanSupplier isEventLoopScheduled(EventLoop loop) {
+        return () -> CommandScheduler.getInstance().getActiveButtonLoop().equals(loop);
+    }
+
+    public void changeEventLoop(EventLoop loop) {
+        CommandScheduler.getInstance().setActiveButtonLoop(loop);
+    }
+
+    private void configureControlLoopChooser() {
+        controllerModeChooser.setDefaultOption("Single player", singlePlayer);
+        controllerModeChooser.addOption("Two player", twoPlayer);
+
+        controllerModeChooser.onChange(this::changeEventLoop);
+    }
+
+    private void configureSinglePlayerBindings() {
+        configureCommonBindings(singlePlayer);
+
         new ArmMovement(arm, Positions.Home);
         new ArmMovement(arm, Positions.Climb);
         new ArmMovement(arm, Positions.Intake);
         new ArmMovement(arm, Positions.ScoreCoral);
         new ArmMovement(arm, Positions.ClimbPrep);
+    }
 
+    private void configureTwoPlayerBindings() {
+        configureCommonBindings(twoPlayer);
+
+        new ArmMovement(arm, Positions.Home);
+        new ArmMovement(arm, Positions.Climb);
+        new ArmMovement(arm, Positions.Intake);
+        new ArmMovement(arm, Positions.ScoreCoral);
+        new ArmMovement(arm, Positions.ClimbPrep);
+    }
+
+    private void configureCommonBindings(EventLoop loop) {
         drivetrain.setDefaultCommand(
-                drivetrain.applyRequest(() -> driveFacingAngle.withVelocityX(-joystick.getLeftY() * MaxSpeed)
-                        .withVelocityY(-joystick.getLeftX() * MaxSpeed)
-                        .withTargetDirection(determineHeading())
-                        .withHeadingPID(10, 0, 0)));
+                drivetrain.applyRequest(() -> driveFacingAngle.withVelocityX(-driverJoystick.getLeftY() * MaxSpeed)
+                        .withVelocityY(-driverJoystick.getLeftX() * MaxSpeed)
+                        .withTargetDirection(
+                                joystickToHeading.determineHeading(
+                                        -driverJoystick.getRightX(),
+                                        -driverJoystick.getRightY()))
+                        .withHeadingPID(10, 0, 0)).beforeStarting(
+                                () -> joystickToHeading.setTargetHeading(drivetrain.getState().Pose.getRotation()
+                                        .rotateBy(drivetrain.getOperatorForwardDirection()))));
 
-        joystick.rightTrigger().whileTrue(
-                drivetrain.applyRequest(() -> driveFacingAngle.withVelocityX(-joystick.getLeftY() * MaxSpeed)
-                        .withVelocityY(-joystick.getLeftX() * MaxSpeed)
-                        .withTargetDirection(determineReefZoneHeading())
-                        .withHeadingPID(10, 0, 0)));
+        driverJoystick.rightTrigger(0.5, loop)
+                .whileTrue(drivetrain.applyRequest(
+                        () -> driveFacingAngle.withVelocityX(-driverJoystick.getLeftY() * MaxSpeed)
+                                .withVelocityY(-driverJoystick.getLeftX() * MaxSpeed)
+                                .withTargetDirection(
+                                        joystickToHeading.determineSnapHeading(
+                                                -driverJoystick.getRightX(),
+                                                -driverJoystick.getRightY(),
+                                                30.0,
+                                                headings))
+                                .withHeadingPID(10, 0, 0))
+                        .beforeStarting(
+                                () -> joystickToHeading.setTargetHeading(drivetrain.getState().Pose.getRotation()
+                                        .rotateBy(drivetrain.getOperatorForwardDirection()))));
+                                        
+        driverJoystick.leftTrigger(0.5, loop).whileTrue(
+                drivetrain.applyRequest(() -> drive.withVelocityX(-driverJoystick.getLeftY() * MaxSpeed)
+                        .withVelocityY(-driverJoystick.getLeftX() * MaxSpeed)
+                        .withRotationalRate(-driverJoystick.getRightX() * MaxAngularRate)));
 
-        joystick.leftTrigger().whileTrue(
-                drivetrain.applyRequest(() -> drive.withVelocityX(-joystick.getLeftY() * MaxSpeed)
-                        .withVelocityY(-joystick.getLeftX() * MaxSpeed)
-                        .withRotationalRate(-joystick.getRightX() * MaxAngularRate)));
-
-        RobotModeTriggers
-                .disabled()
+        RobotModeTriggers.disabled()
                 .whileTrue(drivetrain.applyRequest(() -> idle)
                         .ignoringDisable(true));
 
-        joystick.a().whileTrue(drivetrain.applyRequest(() -> brake));
-        joystick.b().whileTrue(drivetrain.applyRequest(
-                () -> point.withModuleDirection(
-                        new Rotation2d(-joystick.getLeftY(), -joystick.getLeftX()))));
-
-        // Run SysId routines when holding back/start and X/Y.
-        // Note that each routine should be run exactly once in a single log.
-        joystick.back().and(joystick.y()).whileTrue(drivetrain.sysIdDynamic(Direction.kForward));
-        joystick.back().and(joystick.x()).whileTrue(drivetrain.sysIdDynamic(Direction.kReverse));
-        joystick.start().and(joystick.y()).whileTrue(drivetrain.sysIdQuasistatic(Direction.kForward));
-        joystick.start().and(joystick.x()).whileTrue(drivetrain.sysIdQuasistatic(Direction.kReverse));
-
-        // reset the field-centric heading on left bumper press
-        joystick.leftBumper().onTrue(drivetrain.runOnce(() -> drivetrain.seedFieldCentric()));
+        driverJoystick.start(loop).onTrue(drivetrain.runOnce(() -> drivetrain.seedFieldCentric()));
 
         drivetrain.registerTelemetry(logger::telemeterize);
     }
 
-    private Rotation2d determineHeading() {
-        double x = -joystick.getRightX();
-        double y = -joystick.getRightY();
-
-        previousTargetHeading = targetHeading;
-
-        if (Math.hypot(x, y) > JOYSTICK_DEADBAND) {
-            targetHeading = Rotation2d.fromRadians(Math.atan2(x, y));
-            return targetHeading;
-        } else {
-            return previousTargetHeading;
+    private void addPathAuto(String name, String pathName) {
+        try {
+            autoChooser.addOption(name, new PathPlannerAuto(pathName));
+        } catch (Exception e) {
+            // Exceptions are now caught in the PathPlannerAuto constructor and this should
+            // never run. Leaving it in place to catch any edge cases.
+            DataLogManager.log(String.format("GatorBot: Not able to build auto routines! %s", e.getMessage()));
         }
     }
 
-    private Rotation2d determineReefZoneHeading() {
-        double x = -joystick.getRightX();
-        double y = -joystick.getRightY();
-
-        // Store current target before possible update
-        previousReefHeading = targetReefHeading;
-
-        if (Math.hypot(x, y) > JOYSTICK_DEADBAND) {
-
-            // Calculate the stick angle (forward = 0 degrees)
-            Rotation2d stickAngle = Rotation2d.fromRadians(Math.atan2(x, y));
-
-            ReefHeading closestHeading = targetReefHeading;
-            double minAngularDifference = Double.POSITIVE_INFINITY;
-            double difference = 0;
-
-            // Find the closest heading
-            for (ReefHeading heading : ReefHeading.values()) {
-                difference = Math.abs(heading.getRotation2d().minus(stickAngle).getDegrees());
-
-                if (difference < minAngularDifference) {
-                    minAngularDifference = difference;
-                    closestHeading = heading;
-                }
-            }
-
-            if (minAngularDifference < HEADING_TOLERANCE_DEGREES) {
-                targetReefHeading = closestHeading;
-            }
-
-            return targetReefHeading.getRotation2d();
-        }
-        return previousReefHeading.getRotation2d();
+    private void configureAutoCommands() {
+        /*
+         * Do nothing as default is a human safety condition, this should always be the
+         * default
+         */
+        autoChooser.setDefaultOption("Do nothing", new WaitCommand(15));
+        SmartDashboard.putData("Auto Chooser", autoChooser);
     }
+
+    private void configureNamedCommands() {
+
+    }
+
 }
