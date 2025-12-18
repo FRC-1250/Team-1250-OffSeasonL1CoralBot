@@ -6,85 +6,185 @@ package frc.robot;
 
 import static edu.wpi.first.units.Units.*;
 
+import java.util.List;
+import java.util.function.BooleanSupplier;
+
 import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.ctre.phoenix6.swerve.SwerveRequest;
+import com.pathplanner.lib.auto.NamedCommands;
+import com.pathplanner.lib.commands.PathPlannerAuto;
 
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.wpilibj.DataLogManager;
+import edu.wpi.first.wpilibj.event.EventLoop;
+import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.WaitCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
-import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
-import frc.robot.Arm.Positions;
-import frc.robot.Commands.ArmMovement;
+import frc.robot.commands.ArmMovement;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.CommandSwerveDrivetrain;
+import frc.robot.subsystems.Arm;
+import frc.robot.subsystems.Arm.Positions;
+import frc.robot.util.JoystickToHeading;
 
 public class RobotContainer {
-    private double MaxSpeed = TunerConstants.kSpeedAt12Volts.in(MetersPerSecond); // kSpeedAt12Volts desired top speed
-    private double MaxAngularRate = RotationsPerSecond.of(0.75).in(RadiansPerSecond); // 3/4 of a rotation per second max angular velocity
 
-    /* Setting up bindings for necessary control of the swerve drive platform */
+    private final double MaxSpeed = TunerConstants.kSpeedAt12Volts.in(MetersPerSecond);
+    private final double MaxAngularRate = RotationsPerSecond.of(0.75).in(RadiansPerSecond);
+
+    /*
+     * Swerve requests
+     */
     private final SwerveRequest.FieldCentric drive = new SwerveRequest.FieldCentric()
-            .withDeadband(MaxSpeed * 0.1).withRotationalDeadband(MaxAngularRate * 0.1) // Add a 10% deadband
-            .withDriveRequestType(DriveRequestType.OpenLoopVoltage); // Use open-loop control for drive motors
-    private final SwerveRequest.SwerveDriveBrake brake = new SwerveRequest.SwerveDriveBrake();
-    private final SwerveRequest.PointWheelsAt point = new SwerveRequest.PointWheelsAt();
+            .withDeadband(MaxSpeed * 0.1).withRotationalDeadband(MaxAngularRate * 0.1)
+            .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
 
+    private final SwerveRequest.FieldCentricFacingAngle driveFacingAngle = new SwerveRequest.FieldCentricFacingAngle()
+            .withDeadband(MaxSpeed * 0.1)
+            .withRotationalDeadband(MaxAngularRate * 0.1)
+            .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
+
+    private final JoystickToHeading joystickToHeading = new JoystickToHeading();
+    private final List<Rotation2d> headings = List.of(
+            Rotation2d.kZero,
+            Rotation2d.fromDegrees(-60),
+            Rotation2d.fromDegrees(-120),
+            Rotation2d.k180deg,
+            Rotation2d.fromDegrees(120),
+            Rotation2d.fromDegrees(60));
+
+    private final SwerveRequest.Idle idle = new SwerveRequest.Idle();
     private final Telemetry logger = new Telemetry(MaxSpeed);
 
-    private final CommandXboxController joystick = new CommandXboxController(0);
+    /*
+     * Controllers, subsystems, choosers
+     */
+    private final SendableChooser<Command> autoChooser = new SendableChooser<>();
+    private final SendableChooser<EventLoop> controllerModeChooser = new SendableChooser<>();
 
-    public final CommandSwerveDrivetrain drivetrain = TunerConstants.createDrivetrain();
+    private final EventLoop singlePlayer = new EventLoop();
+    private final EventLoop twoPlayer = new EventLoop();
+    private final CommandXboxController driverJoystick = new CommandXboxController(0);
+    private final CommandXboxController operatorPanel = new CommandXboxController(1);
+
+    private final CommandSwerveDrivetrain drivetrain = TunerConstants.createDrivetrain();
+    private final Arm arm = new Arm();
 
     public RobotContainer() {
-        configureBindings();
-  
-    }
-    final Arm arm = new Arm();
-    private void configureBindings() {
-          new ArmMovement(arm, Positions.Home);
-          new ArmMovement(arm, Positions.Climb);
-          new ArmMovement(arm, Positions.Intake);
-          new ArmMovement(arm, Positions.ScoreCoral);
-          new ArmMovement(arm, Positions.ClimbPrep);
-        // Note that X is defined as forward according to WPILib convention,
-        // and Y is defined as to the left according to WPILib convention.
-        drivetrain.setDefaultCommand(
-            // Drivetrain will execute this command periodically
-            drivetrain.applyRequest(() ->
-                drive.withVelocityX(-joystick.getLeftY() * MaxSpeed) // Drive forward with negative Y (forward)
-                    .withVelocityY(-joystick.getLeftX() * MaxSpeed) // Drive left with negative X (left)
-                    .withRotationalRate(-joystick.getRightX() * MaxAngularRate) // Drive counterclockwise with negative X (left)
-            )
-        );
-
-        // Idle while the robot is disabled. This ensures the configured
-        // neutral mode is applied to the drive motors while disabled.
-        final var idle = new SwerveRequest.Idle();
-        RobotModeTriggers.disabled().whileTrue(
-            drivetrain.applyRequest(() -> idle).ignoringDisable(true)
-        );
-
-        joystick.a().whileTrue(drivetrain.applyRequest(() -> brake));
-        joystick.b().whileTrue(drivetrain.applyRequest(() ->
-            point.withModuleDirection(new Rotation2d(-joystick.getLeftY(), -joystick.getLeftX()))
-        ));
-
-        // Run SysId routines when holding back/start and X/Y.
-        // Note that each routine should be run exactly once in a single log.
-        joystick.back().and(joystick.y()).whileTrue(drivetrain.sysIdDynamic(Direction.kForward));
-        joystick.back().and(joystick.x()).whileTrue(drivetrain.sysIdDynamic(Direction.kReverse));
-        joystick.start().and(joystick.y()).whileTrue(drivetrain.sysIdQuasistatic(Direction.kForward));
-        joystick.start().and(joystick.x()).whileTrue(drivetrain.sysIdQuasistatic(Direction.kReverse));
-
-        // reset the field-centric heading on left bumper press
-        joystick.leftBumper().onTrue(drivetrain.runOnce(() -> drivetrain.seedFieldCentric()));
-
-        drivetrain.registerTelemetry(logger::telemeterize);
+        configureSinglePlayerBindings();
+        configureTwoPlayerBindings();
+        changeEventLoop(singlePlayer);
+        configureNamedCommands();
+        configureAutoCommands();
+        configureControlLoopChooser();
     }
 
     public Command getAutonomousCommand() {
         return Commands.print("No autonomous command configured");
     }
+
+    public BooleanSupplier isEventLoopScheduled(EventLoop loop) {
+        return () -> CommandScheduler.getInstance().getActiveButtonLoop().equals(loop);
+    }
+
+    public void changeEventLoop(EventLoop loop) {
+        CommandScheduler.getInstance().setActiveButtonLoop(loop);
+    }
+
+    private void configureControlLoopChooser() {
+        controllerModeChooser.setDefaultOption("Single player", singlePlayer);
+        controllerModeChooser.addOption("Two player", twoPlayer);
+
+        controllerModeChooser.onChange(this::changeEventLoop);
+    }
+
+    private void configureSinglePlayerBindings() {
+        configureCommonBindings(singlePlayer);
+
+        new ArmMovement(arm, Positions.Home);
+        new ArmMovement(arm, Positions.Climb);
+        new ArmMovement(arm, Positions.Intake);
+        new ArmMovement(arm, Positions.ScoreCoral);
+        new ArmMovement(arm, Positions.ClimbPrep);
+    }
+
+    private void configureTwoPlayerBindings() {
+        configureCommonBindings(twoPlayer);
+
+        new ArmMovement(arm, Positions.Home);
+        new ArmMovement(arm, Positions.Climb);
+        new ArmMovement(arm, Positions.Intake);
+        new ArmMovement(arm, Positions.ScoreCoral);
+        new ArmMovement(arm, Positions.ClimbPrep);
+    }
+
+    private void configureCommonBindings(EventLoop loop) {
+        drivetrain.setDefaultCommand(
+                drivetrain.applyRequest(() -> driveFacingAngle.withVelocityX(-driverJoystick.getLeftY() * MaxSpeed)
+                        .withVelocityY(-driverJoystick.getLeftX() * MaxSpeed)
+                        .withTargetDirection(
+                                joystickToHeading.determineHeading(
+                                        -driverJoystick.getRightX(),
+                                        -driverJoystick.getRightY()))
+                        .withHeadingPID(10, 0, 0)).beforeStarting(
+                                () -> joystickToHeading.setTargetHeading(drivetrain.getState().Pose.getRotation()
+                                        .rotateBy(drivetrain.getOperatorForwardDirection()))));
+
+        driverJoystick.rightTrigger(0.5, loop)
+                .whileTrue(drivetrain.applyRequest(
+                        () -> driveFacingAngle.withVelocityX(-driverJoystick.getLeftY() * MaxSpeed)
+                                .withVelocityY(-driverJoystick.getLeftX() * MaxSpeed)
+                                .withTargetDirection(
+                                        joystickToHeading.determineSnapHeading(
+                                                -driverJoystick.getRightX(),
+                                                -driverJoystick.getRightY(),
+                                                30.0,
+                                                headings))
+                                .withHeadingPID(10, 0, 0))
+                        .beforeStarting(
+                                () -> joystickToHeading.setTargetHeading(drivetrain.getState().Pose.getRotation()
+                                        .rotateBy(drivetrain.getOperatorForwardDirection()))));
+                                        
+        driverJoystick.leftTrigger(0.5, loop).whileTrue(
+                drivetrain.applyRequest(() -> drive.withVelocityX(-driverJoystick.getLeftY() * MaxSpeed)
+                        .withVelocityY(-driverJoystick.getLeftX() * MaxSpeed)
+                        .withRotationalRate(-driverJoystick.getRightX() * MaxAngularRate)));
+
+        RobotModeTriggers.disabled()
+                .whileTrue(drivetrain.applyRequest(() -> idle)
+                        .ignoringDisable(true));
+
+        driverJoystick.start(loop).onTrue(drivetrain.runOnce(() -> drivetrain.seedFieldCentric()));
+
+        drivetrain.registerTelemetry(logger::telemeterize);
+    }
+
+    private void addPathAuto(String name, String pathName) {
+        try {
+            autoChooser.addOption(name, new PathPlannerAuto(pathName));
+        } catch (Exception e) {
+            // Exceptions are now caught in the PathPlannerAuto constructor and this should
+            // never run. Leaving it in place to catch any edge cases.
+            DataLogManager.log(String.format("GatorBot: Not able to build auto routines! %s", e.getMessage()));
+        }
+    }
+
+    private void configureAutoCommands() {
+        /*
+         * Do nothing as default is a human safety condition, this should always be the
+         * default
+         */
+        autoChooser.setDefaultOption("Do nothing", new WaitCommand(15));
+        SmartDashboard.putData("Auto Chooser", autoChooser);
+    }
+
+    private void configureNamedCommands() {
+
+    }
+
 }
